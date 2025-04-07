@@ -40,7 +40,7 @@ gelfLogLevelsMapping
     levelMapping[x[0]] = x[1];
   });
 
-// https://github.com/kkamkou/node-gelf-pro/blob/master/README.md
+// Define log levels (GELF levels)
 const LEVELS = {
   emergency: 0,
   alert: 1,
@@ -68,7 +68,7 @@ function toJSONSafe(data) {
   }
 }
 
-function logDataItem(data = "", explicitLevel) {
+function logDataItem(data = "", explicitLevel, processName) {
   let level = explicitLevel || LEVELS.info;
   let logData = [data];
 
@@ -84,6 +84,8 @@ function logDataItem(data = "", explicitLevel) {
         message = parsed.message;
         delete parsed.message;
       }
+      // Add the process name field
+      parsed.processName = processName;
       if (conf.graylogType === "json") {
         logData = [JSON.stringify({ message }), parsed];
       } else {
@@ -92,7 +94,7 @@ function logDataItem(data = "", explicitLevel) {
     }
   } else {
     if (conf.graylogType === "json") {
-      logData = [JSON.stringify({ message: data })];
+      logData = [JSON.stringify({ message: data, processName: processName })];
     }
   }
   (logMethods[level] || logMethods[LEVELS.info]).apply(gelf, logData);
@@ -105,12 +107,12 @@ function splitLines(data) {
   return [];
 }
 
-function logData(data, explicitLevel) {
+function logData(data, explicitLevel, processName) {
   try {
     if (conf.graylogSplitLines) {
-      splitLines(data).forEach((s) => logDataItem(s, explicitLevel));
+      splitLines(data).forEach((s) => logDataItem(s, explicitLevel, processName));
     } else {
-      logDataItem(data, explicitLevel);
+      logDataItem(data, explicitLevel, processName);
     }
   } catch (e) {
     logger("Error (logData)", data, e);
@@ -124,12 +126,13 @@ pm2.Client.launchBus((err, bus) => {
 
   bus.on("log:out", (log) => {
     if (log.process.name === PM2_MODULE_NAME) return;
-    logData(log.data);
+    // Pass the process name along with the log data
+    logData(log.data, undefined, log.process.name);
   });
 
   bus.on("log:err", (log) => {
     if (log.process.name === PM2_MODULE_NAME) return;
-    logData(log.data, LEVELS.error);
+    logData(log.data, LEVELS.error, log.process.name);
   });
 
   bus.on("reconnect attempt", () => {
